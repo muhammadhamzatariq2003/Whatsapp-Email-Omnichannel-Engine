@@ -108,6 +108,8 @@ docker compose up --build -d
 5. In your `.env` or n8n environment, ensure `N8N_WEBHOOK_SECRET` matches `kajiou_internal_secret`.
 
 ---
+## n8n Workflows
+<img width="1331" height="489" alt="image" src="https://github.com/user-attachments/assets/7f54ee85-aea3-4644-b16b-90df32d91465" />
 
 ## API Reference
 
