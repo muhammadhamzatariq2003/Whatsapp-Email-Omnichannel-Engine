@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  kajiou-db:
+    image: postgres:15-alpine
+    container_name: kajiou-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kajiou_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kajiou_secure_password}
+      POSTGRES_DB: ${POSTGRES_DB:-kajiou_crm}
+    volumes:
+      - kajiou_pg_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  kajiou-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: kajiou-backend
+    restart: always
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-kajiou_user}:${POSTGRES_PASSWORD:-kajiou_secure_password}@kajiou-db:5432/${POSTGRES_DB:-kajiou_crm}?schema=public"
+      PORT: 4000
+      DEMO_MODE: ${DEMO_MODE:-true}
+      N8N_WEBHOOK_SECRET: ${N8N_WEBHOOK_SECRET:-kajiou_internal_secret}
+      KAJIOU_WEBHOOK_SECRET: ${KAJIOU_WEBHOOK_SECRET:-kajiou_internal_secret}
+      N8N_BASE_URL: "http://kajiou-n8n:5678"
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-DEMO_PHONE_ID}
+      WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-DEMO_TOKEN}
+      WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-kajiou_verify_token}
+      WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-DEMO_SECRET}
+      AI_API_KEY: ${AI_API_KEY:-DEMO_KEY}
+      AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
+    depends_on:
+      - kajiou-db
+
+  kajiou-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: kajiou-frontend
+    restart: always
+    ports:
+      - "3000:80"
+    depends_on:
+      - kajiou-backend
+
+  kajiou-n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: kajiou-n8n
+    restart: always
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=Asia/Karachi
+      - N8N_WEBHOOK_SECRET=${N8N_WEBHOOK_SECRET:-kajiou_internal_secret}
+    volumes:
+      - kajiou_n8n_data:/home/node/.n8n
+    depends_on:
+      - kajiou-backend
+
+volumes:
+  kajiou_pg_data:
+  kajiou_n8n_data:

@@ -1,0 +1,15 @@
+{
+  "name": "Kajiou - 01 WhatsApp Inbound AI Orchestrator",
+  "nodes": [
+    { "parameters": { "httpMethod": "POST", "path": "whatsapp-inbound", "options": {} }, "id": "1", "name": "Webhook Inbound Receiver", "type": "n8n-nodes-base.webhook", "typeVersion": 1, "position": [180, 240], "webhookId": "whatsapp-inbound" },
+    { "parameters": { "conditions": { "string": [ { "value1": "={{ $json.body.message }}", "operation": "isNotEmpty" } ] } }, "id": "2", "name": "Validate Payload", "type": "n8n-nodes-base.if", "typeVersion": 1, "position": [380, 240] },
+    { "parameters": { "method": "POST", "url": "http://kajiou-backend:4000/api/v1/ai/analyze", "sendHeaders": true, "headerParameters": { "parameters": [ { "name": "X-Kajiou-Secret", "value": "={{ $env.N8N_WEBHOOK_SECRET }}" } ] }, "sendBody": true, "specifyBody": "json", "jsonBody": "={{ JSON.stringify({ content: $json.body.message, senderName: $json.body.senderName }) }}", "options": {} }, "id": "3", "name": "Kajiou AI Classification", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4, "position": [580, 240] },
+    { "parameters": { "method": "POST", "url": "http://kajiou-backend:4000/api/v1/leads/upsert-auto", "sendHeaders": true, "headerParameters": { "parameters": [ { "name": "X-Kajiou-Secret", "value": "={{ $env.N8N_WEBHOOK_SECRET }}" } ] }, "sendBody": true, "specifyBody": "json", "jsonBody": "={{ JSON.stringify({ customerId: $('Webhook Inbound Receiver').item.json.body.customerId, source: 'WHATSAPP', inquiry: $('Webhook Inbound Receiver').item.json.body.message, analysis: $json }) }}", "options": {} }, "id": "4", "name": "Auto-Upsert Lead & Schedule FollowUp", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4, "position": [780, 240] }
+  ],
+  "connections": {
+    "Webhook Inbound Receiver": { "main": [[{ "node": "Validate Payload", "type": "main", "index": 0 }]] },
+    "Validate Payload": { "main": [[{ "node": "Kajiou AI Classification", "type": "main", "index": 0 }]] },
+    "Kajiou AI Classification": { "main": [[{ "node": "Auto-Upsert Lead & Schedule FollowUp", "type": "main", "index": 0 }]] }
+  },
+  "settings": {}
+}

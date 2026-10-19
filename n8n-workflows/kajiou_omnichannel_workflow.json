@@ -1,0 +1,195 @@
+{
+  "name": "Kajiou - Omnichannel WhatsApp & Gmail Autonomous Engine",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-cloud-webhook",
+        "options": {}
+      },
+      "id": "wa-inbound-trigger",
+      "name": "WhatsApp Cloud Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 240],
+      "webhookId": "kajiou-wa-inbound"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || {};\nconst entry = body.entry?.[0];\nconst change = entry?.changes?.[0]?.value;\nconst contact = change?.contacts?.[0];\nconst msg = change?.messages?.[0];\n\nif (!msg) {\n  return [];\n}\n\nreturn [{\n  json: {\n    senderContact: msg.from || 'Unknown',\n    senderName: contact?.profile?.name || 'WhatsApp Client',\n    subject: 'WhatsApp Inbound Message',\n    messageText: msg.text?.body || '[Attachment or Media]',\n    messageId: msg.id,\n    channel: 'WHATSAPP',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "norm-wa",
+      "name": "Normalize WhatsApp Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 240]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "q": "is:unread label:INBOX"
+        },
+        "options": {}
+      },
+      "id": "gmail-inbound-trigger",
+      "name": "Gmail Inbound Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [200, 480]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    senderContact: $json.from?.value?.[0]?.address || $json.from?.text || 'email@client.com',\n    senderName: $json.from?.value?.[0]?.name || 'Email Client',\n    subject: $json.subject || 'New Inquiry',\n    messageText: $json.snippet || $json.textPlain || '',\n    threadId: $json.threadId || '',\n    channel: 'GMAIL',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "norm-gmail",
+      "name": "Normalize Gmail Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 480]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Analyze the following customer inquiry and return JSON:\nChannel: {{ $json.channel }}\nClient: {{ $json.senderName }} ({{ $json.senderContact }})\nSubject: {{ $json.subject }}\nMessage: {{ $json.messageText }}\n\nFormat required:\n{\n  \"intent\": \"SALES | SUPPORT | URGENT_QUOTE | GENERAL\",\n  \"priority\": \"HIGH | MEDIUM | LOW\",\n  \"summary\": \"1 short sentence\",\n  \"draftReply\": \"professional response\"\n}"
+      },
+      "id": "ai-chain-node",
+      "name": "AI Intent & Priority...",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [700, 360]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "openai-chat-model",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [700, 560]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $('Normalize WhatsApp Payload').isExecuted ? 'WHATSAPP' : 'GMAIL' }}",
+              "value2": "WHATSAPP"
+            }
+          ]
+        }
+      },
+      "id": "route-channel",
+      "name": "Route by Channel",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [960, 360]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $env.WHATSAPP_PHONE_NUMBER_ID || '1048291029381' }}",
+        "recipientPhoneNumber": "={{ $('Normalize WhatsApp Payload').item.json.senderContact }}",
+        "messageType": "text",
+        "text": "=Hello {{ $('Normalize WhatsApp Payload').item.json.senderName }}, thank you for contacting Kajiou.\n\nWe have received your inquiry. A senior representative is reviewing your details right now.",
+        "additionalFields": {}
+      },
+      "id": "wa-send",
+      "name": "WhatsApp Cloud API Send",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [1220, 240]
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "operation": "create",
+        "subject": "=Re: {{ $('Normalize Gmail Payload').item.json.subject }}",
+        "emailType": "text",
+        "message": "=Hello {{ $('Normalize Gmail Payload').item.json.senderName }},\n\nThank you for reaching out to Kajiou.\n\nOur team has received your inquiry and is reviewing your request.\n\nKind regards,\nKajiou Operations Team",
+        "options": {
+          "threadId": "={{ $('Normalize Gmail Payload').item.json.threadId }}"
+        }
+      },
+      "id": "gmail-send",
+      "name": "Gmail Create Reply Draft",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1220, 480]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://kajiou-backend:4000/api/v1/leads/upsert-auto",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"channel\": \"{{ $('Normalize WhatsApp Payload').isExecuted ? 'WHATSAPP' : 'GMAIL' }}\",\n  \"clientName\": \"{{ $('Normalize WhatsApp Payload').isExecuted ? $('Normalize WhatsApp Payload').item.json.senderName : $('Normalize Gmail Payload').item.json.senderName }}\",\n  \"contactInfo\": \"{{ $('Normalize WhatsApp Payload').isExecuted ? $('Normalize WhatsApp Payload').item.json.senderContact : $('Normalize Gmail Payload').item.json.senderContact }}\",\n  \"aiResponse\": {{ $json.text }}\n}",
+        "options": {}
+      },
+      "id": "sync-crm",
+      "name": "Sync Lead to Kajiou CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1480, 360]
+    }
+  ],
+  "connections": {
+    "WhatsApp Cloud Webhook": {
+      "main": [
+        [{ "node": "Normalize WhatsApp Payload", "type": "main", "index": 0 }]
+      ]
+    },
+    "Normalize WhatsApp Payload": {
+      "main": [
+        [{ "node": "AI Intent & Priority...", "type": "main", "index": 0 }]
+      ]
+    },
+    "Gmail Inbound Trigger": {
+      "main": [
+        [{ "node": "Normalize Gmail Payload", "type": "main", "index": 0 }]
+      ]
+    },
+    "Normalize Gmail Payload": {
+      "main": [
+        [{ "node": "AI Intent & Priority...", "type": "main", "index": 0 }]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [{ "node": "AI Intent & Priority...", "type": "ai_languageModel", "index": 0 }]
+      ]
+    },
+    "AI Intent & Priority...": {
+      "main": [
+        [{ "node": "Route by Channel", "type": "main", "index": 0 }]
+      ]
+    },
+    "Route by Channel": {
+      "main": [
+        [{ "node": "WhatsApp Cloud API Send", "type": "main", "index": 0 }],
+        [{ "node": "Gmail Create Reply Draft", "type": "main", "index": 0 }]
+      ]
+    },
+    "WhatsApp Cloud API Send": {
+      "main": [
+        [{ "node": "Sync Lead to Kajiou CRM", "type": "main", "index": 0 }]
+      ]
+    },
+    "Gmail Create Reply Draft": {
+      "main": [
+        [{ "node": "Sync Lead to Kajiou CRM", "type": "main", "index": 0 }]
+      ]
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "Kajiou - 05 Follow-Up Cadence Governor",
+  "nodes": [
+    { "parameters": { "rule": { "interval": [ { "field": "minutes", "minutesInterval": 15 } ] } }, "id": "1", "name": "15-Minute Cron Sentinel", "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1, "position": [160, 260] },
+    { "parameters": { "method": "POST", "url": "http://kajiou-backend:4000/api/v1/followups/trigger-due", "sendHeaders": true, "headerParameters": { "parameters": [ { "name": "X-Kajiou-Secret", "value": "={{ $env.N8N_WEBHOOK_SECRET }}" } ] }, "options": {} }, "id": "2", "name": "Trigger Engine Execution", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4, "position": [380, 260] }
+  ],
+  "connections": { "15-Minute Cron Sentinel": { "main": [[{ "node": "Trigger Engine Execution", "type": "main", "index": 0 }]] } },
+  "settings": {}
+}

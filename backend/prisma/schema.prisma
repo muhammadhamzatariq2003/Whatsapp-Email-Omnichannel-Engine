@@ -1,0 +1,203 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  PROPOSAL_SENT
+  NEGOTIATION
+  WON
+  LOST
+}
+
+enum LeadPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ChannelSource {
+  WHATSAPP
+  GMAIL
+  WEB_FORM
+  MANUAL
+  PHONE
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum FollowUpStatus {
+  SCHEDULED
+  SENT
+  CANCELLED
+  EXPIRED
+}
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  passwordHash String
+  name         String
+  role         Role       @default(STAFF)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  leads        Lead[]     @relation("AssignedLeads")
+  auditLogs    AuditLog[]
+  followUps    FollowUp[]
+}
+
+model Customer {
+  id            String         @id @default(uuid())
+  email         String?        @unique
+  phoneNumber   String?        @unique
+  fullName      String
+  companyName   String?
+  optedOut      Boolean        @default(false)
+  optedOutAt    DateTime?
+  customFields  Json?          @default("{}")
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  leads         Lead[]
+  messages      Message[]
+  conversations Conversation[]
+}
+
+model Lead {
+  id                 String         @id @default(uuid())
+  customerId         String?
+  customer           Customer?      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  name               String?
+  contactInfo        String?        @unique
+  channel            String         @default("WHATSAPP")
+  sourceChannel      ChannelSource  @default(WHATSAPP)
+  status             LeadStatus     @default(NEW)
+  priority           LeadPriority   @default(MEDIUM)
+  intent             String?        @default("GENERAL")
+  title              String?
+  value              Float?         @default(0.0)
+  inquiryDetails     String?
+  serviceInterest    String?
+  summary            String?
+  lastDraftReply     String?
+  assignedToUserId   String?
+  assignedTo         User?          @relation("AssignedLeads", fields: [assignedToUserId], references: [id])
+  nextFollowUpDate   DateTime?
+  qualificationScore Int            @default(0)
+  metadata           Json?          @default("{}")
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  followUps          FollowUp[]
+  activities         LeadActivity[]
+
+  @@index([status, priority])
+  @@index([sourceChannel])
+  @@index([contactInfo])
+}
+
+model Conversation {
+  id             String        @id @default(uuid())
+  customerId     String
+  customer       Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  channel        ChannelSource @default(WHATSAPP)
+  externalId     String?
+  isOpen         Boolean       @default(true)
+  humanTakeover  Boolean       @default(false)
+  lastActivityAt DateTime      @default(now())
+  createdAt      DateTime      @default(now())
+  messages       Message[]
+
+  @@index([customerId, channel])
+}
+
+model Message {
+  id               String           @id @default(uuid())
+  conversationId   String
+  conversation     Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  customerId       String
+  customer         Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  direction        MessageDirection
+  channel          ChannelSource    @default(WHATSAPP)
+  externalId       String?          @unique
+  senderIdentifier String
+  body             String
+  aiClassifiedTag  String?
+  status           MessageStatus    @default(QUEUED)
+  isSimulated      Boolean          @default(false)
+  createdAt        DateTime         @default(now())
+}
+
+model FollowUp {
+  id                 String         @id @default(uuid())
+  leadId             String
+  lead               Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  assignedToId       String?
+  assignedTo         User?          @relation(fields: [assignedToId], references: [id])
+  scheduledAt        DateTime
+  channel            ChannelSource  @default(WHATSAPP)
+  templateKey        String
+  status             FollowUpStatus @default(SCHEDULED)
+  attemptCount       Int            @default(0)
+  cancellationReason String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  @@index([status, scheduledAt])
+}
+
+model LeadActivity {
+  id          String   @id @default(uuid())
+  leadId      String
+  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  actionType  String
+  description String
+  actorEmail  String   @default("system@kajiou.internal")
+  timestamp   DateTime @default(now())
+}
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  userId         String?
+  user           User?    @relation(fields: [userId], references: [id])
+  action         String
+  targetResource String
+  ipAddress      String?
+  details        Json?
+  timestamp      DateTime @default(now())
+
+  @@index([timestamp, action])
+}
+
+model IdempotencyRecord {
+  key       String   @id
+  source    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
